@@ -213,3 +213,10 @@ pip-log.txt
 
 #Mr Developer
 .mr.developer.cfg
+.gradle/
+.idea/encodings.xml
+.idea/gradle.xml
+.idea/libraries/
+.idea/modules.xml
+.idea/runConfigurations.xml
+.idea/workspace.xml

@@ -74,9 +74,13 @@ public class AudioDecoderThread {
 		MediaFormat format = makeAACCodecSpecificData(MediaCodecInfo.CodecProfileLevel.AACObjectLC, mSampleRate, channel);
 		if (format == null)
 			return;
-		
-		mDecoder = MediaCodec.createDecoderByType("audio/mp4a-latm");
-		mDecoder.configure(format, null, null, 0);
+
+		try {
+			mDecoder = MediaCodec.createDecoderByType("audio/mp4a-latm");
+			mDecoder.configure(format, null, null, 0);
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
 
 		if (mDecoder == null) {
 			Log.e("DecodeActivity", "Can't find video info!");

@@ -12,4 +12,10 @@
     <!-- Video decoder -->
     <string name="activity_video_decoder">Decoder/<b>Video Decoder</b></string>
 
+    <string name="my_app_name">VideoToJpeg</string>
+    <string name="video_file_path">视频文件路径</string>
+    <string name="choose_video_file">选择视频文件</string>
+    <string name="folder_name_created">生成文件夹名</string>
+    <string name="image_type_created">生成图片格式</string>
+    <string name="start">开始</string>
 </resources>

@@ -8,9 +8,9 @@ package net.thdev.mediacodecexample;
  * Created by zhantong on 16/9/8.
  */
 public enum OutputImageFormat {
+    JPEG("JPEG"),
     I420("I420"),
-    NV21("NV21"),
-    JPEG("JPEG");
+    NV21("NV21");
     private String friendlyName;
 
     private OutputImageFormat(String friendlyName) {

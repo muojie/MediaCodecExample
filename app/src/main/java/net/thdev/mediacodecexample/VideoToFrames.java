@@ -12,12 +12,17 @@ import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
 import android.media.MediaExtractor;
 import android.media.MediaFormat;
+import android.os.Environment;
 import android.util.Log;
+
+import net.thdev.mediacodecexample.utils.JpegEncoder;
 
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.LinkedBlockingQueue;
 
 /**
@@ -25,7 +30,7 @@ import java.util.concurrent.LinkedBlockingQueue;
  */
 public class VideoToFrames implements Runnable {
     private static final String TAG = "VideoToFrames";
-    private static final boolean VERBOSE = false;
+    private static final boolean VERBOSE = true;
     private static final long DEFAULT_TIMEOUT_US = 10000;
 
     private static final int COLOR_FormatI420 = 1;
@@ -43,6 +48,30 @@ public class VideoToFrames implements Runnable {
     private Throwable throwable;
     private Thread childThread;
 
+    private static final String VIDEO = "video/";
+    private MediaExtractor mExtractor;
+    private MediaCodec mDecoder;
+
+    private boolean mToSeek = true;
+    private long mToSeekPTS = 0;
+    private long lastSeekedTo = 0;
+    private long lastOffset = 0;
+    private int mWidth = 0;
+    private int mHeight = 0;
+    private int mVideoMaxInputSize = 0;
+    private long mVideoDuration;
+    private static final int SAMPLING_PERIOD	= 3000;				//3s
+    private int mFPS = 30;
+    private boolean eosReceived;
+    private long mFirstPTS = 0;
+
+    private long mSeekUsedTime = 0;
+    private long mJpegEncTime = 0;
+    private long mTotalUsedTime = 0;
+    private long mDecodeTimeStart = 0;
+
+    private List<Long> mIFramePTS = new ArrayList<>();  //结果 List
+
     private Callback callback;
 
     public interface Callback {
@@ -53,6 +82,19 @@ public class VideoToFrames implements Runnable {
 
     public void setCallback(Callback callback) {
         this.callback = callback;
+    }
+
+
+    public long getTotalUsedTime() {
+        return mTotalUsedTime;
+    }
+
+    public long getJpegEncTime() {
+        return mJpegEncTime;
+    }
+
+    public long getVideoDuration() {
+        return mVideoDuration;
     }
 
     public void setEnqueue(LinkedBlockingQueue<byte[]> queue) {
@@ -94,38 +136,51 @@ public class VideoToFrames implements Runnable {
     }
 
     public void videoDecode(String videoFilePath) throws IOException {
-        MediaExtractor extractor = null;
-        MediaCodec decoder = null;
         try {
-            File videoFile = new File(videoFilePath);
-            extractor = new MediaExtractor();
-            extractor.setDataSource(videoFile.toString());
-            int trackIndex = selectTrack(extractor);
-            if (trackIndex < 0) {
-                throw new RuntimeException("No video track found in " + videoFilePath);
+            mExtractor = new MediaExtractor();
+            mExtractor.setDataSource(videoFilePath);
+
+            //init
+            mSeekUsedTime = 0;
+            mDecodeTimeStart = System.currentTimeMillis();
+
+            for (int i = 0; i < mExtractor.getTrackCount(); i++) {
+                MediaFormat format = mExtractor.getTrackFormat(i);
+
+                String mime = format.getString(MediaFormat.KEY_MIME);
+                if (mime.startsWith(VIDEO)) {
+                    mExtractor.selectTrack(i);
+                    mDecoder = MediaCodec.createDecoderByType(mime);
+                    mWidth = format.getInteger(MediaFormat.KEY_WIDTH);
+                    mHeight = format.getInteger(MediaFormat.KEY_HEIGHT);
+                    mVideoDuration = format.getLong(MediaFormat.KEY_DURATION)/1000;
+                    mVideoMaxInputSize = format.getInteger(MediaFormat.KEY_MAX_INPUT_SIZE);
+                    showSupportedColorFormat(mDecoder.getCodecInfo().getCapabilitiesForType(mime));
+//                    if (isColorFormatSupported(decodeColorFormat, mDecoder.getCodecInfo().getCapabilitiesForType(mime))) {
+//                        format.setInteger(MediaFormat.KEY_COLOR_FORMAT, decodeColorFormat);
+//                        Log.i(TAG, "set decode color format to type " + decodeColorFormat);
+//                    } else {
+//                        Log.i(TAG, "unable to set decode color format, color format type " + decodeColorFormat + " not supported");
+//                    }
+                    Log.d(TAG, "format : " + format);
+                    GotIFramePTS();
+                    decodeFramesToImage(mDecoder, mExtractor, format);
+                    mDecoder.stop();
+                    break;
+                }
             }
-            extractor.selectTrack(trackIndex);
-            MediaFormat mediaFormat = extractor.getTrackFormat(trackIndex);
-            String mime = mediaFormat.getString(MediaFormat.KEY_MIME);
-            decoder = MediaCodec.createDecoderByType(mime);
-            showSupportedColorFormat(decoder.getCodecInfo().getCapabilitiesForType(mime));
-            if (isColorFormatSupported(decodeColorFormat, decoder.getCodecInfo().getCapabilitiesForType(mime))) {
-                mediaFormat.setInteger(MediaFormat.KEY_COLOR_FORMAT, decodeColorFormat);
-                Log.i(TAG, "set decode color format to type " + decodeColorFormat);
-            } else {
-                Log.i(TAG, "unable to set decode color format, color format type " + decodeColorFormat + " not supported");
-            }
-            decodeFramesToImage(decoder, extractor, mediaFormat);
-            decoder.stop();
+
+        } catch (IOException e) {
+            e.printStackTrace();
         } finally {
-            if (decoder != null) {
-                decoder.stop();
-                decoder.release();
-                decoder = null;
+            if (mDecoder != null) {
+                mDecoder.stop();
+                mDecoder.release();
+                mDecoder = null;
             }
-            if (extractor != null) {
-                extractor.release();
-                extractor = null;
+            if (mExtractor != null) {
+                mExtractor.release();
+                mExtractor = null;
             }
         }
     }
@@ -155,76 +210,230 @@ public class VideoToFrames implements Runnable {
         decoder.start();
         final int width = mediaFormat.getInteger(MediaFormat.KEY_WIDTH);
         final int height = mediaFormat.getInteger(MediaFormat.KEY_HEIGHT);
-        int outputFrameCount = 0;
+        int InputFrameCount = 0, outputFrameCount = 0, JpegFrameCount = 0;
         while (!sawOutputEOS && !stopDecode) {
             if (!sawInputEOS) {
                 int inputBufferId = decoder.dequeueInputBuffer(DEFAULT_TIMEOUT_US);
                 if (inputBufferId >= 0) {
                     ByteBuffer inputBuffer = decoder.getInputBuffer(inputBufferId);
-                    int sampleSize = extractor.readSampleData(inputBuffer, 0);
-                    if (sampleSize < 0) {
+                    if(seekTo(InputFrameCount)) {
+                        int sampleSize = extractor.readSampleData(inputBuffer, 0);
+                        if (sampleSize < 0) {
+                            decoder.queueInputBuffer(inputBufferId, 0, 0, 0L, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
+                            sawInputEOS = true;
+                        } else {
+                            long presentationTimeUs = extractor.getSampleTime();
+                            int sampleFlag = extractor.getSampleFlags();
+                            if (VERBOSE)
+                                Log.d(TAG, "queue frame, pts:  " + presentationTimeUs / 1000 +
+                                        ", flag: " + sampleFlag + ", size: " + sampleSize);
+                            decoder.queueInputBuffer(inputBufferId, 0, sampleSize, presentationTimeUs, 0);
+                            InputFrameCount++;
+                            extractor.advance();
+                        }
+                    }else {
                         decoder.queueInputBuffer(inputBufferId, 0, 0, 0L, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
                         sawInputEOS = true;
-                    } else {
-                        long presentationTimeUs = extractor.getSampleTime();
-                        decoder.queueInputBuffer(inputBufferId, 0, sampleSize, presentationTimeUs, 0);
-                        extractor.advance();
                     }
                 }
             }
             int outputBufferId = decoder.dequeueOutputBuffer(info, DEFAULT_TIMEOUT_US);
             if (outputBufferId >= 0) {
+                outputFrameCount++;
                 if ((info.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
                     sawOutputEOS = true;
                 }
                 boolean doRender = (info.size != 0);
+//                doRender = (JpegFrameCount == 0) || ((info.presentationTimeUs-mFirstPTS)/(1000 * JpegFrameCount) > SAMPLING_PERIOD);
+                if (VERBOSE) Log.d(TAG, "awaiting decode of frame " + JpegFrameCount + ", pts: " + info.presentationTimeUs/1000);
                 if (doRender) {
-                    outputFrameCount++;
+                    if (JpegFrameCount == 0)
+                        mFirstPTS = info.presentationTimeUs;
+                    JpegFrameCount++;
                     if (callback != null) {
-                        callback.onDecodeFrame(outputFrameCount);
+                        callback.onDecodeFrame(JpegFrameCount);
                     }
-                    Image image = decoder.getOutputImage(outputBufferId);
-                    //System.out.println("image format: " + image.getFormat());
+                    long before = System.currentTimeMillis();
+                    MediaFormat bufferFormat = mDecoder.getOutputFormat(outputBufferId);
+                    Log.d(TAG, "buffer format: " + bufferFormat);
 
-                    ByteBuffer buffer = image.getPlanes()[0].getBuffer();
-                    byte[] arr = new byte[buffer.remaining()];
-                    buffer.get(arr);
-                    if (mQueue != null) {
-                        try {
-                            mQueue.put(arr);
-                        } catch (InterruptedException e) {
-                            e.printStackTrace();
-                        }
-                    }
+                    ByteBuffer outputBuffer = mDecoder.getOutputBuffer(outputBufferId);
+                    byte[] arr = new byte[outputBuffer.remaining()];
+                    outputBuffer.get(arr, 0, arr.length);
+                    Log.d(TAG, "buffer info: " + outputBuffer.limit() + ", " + outputBuffer.capacity() + ", " +
+                            outputBuffer.mark() + ", " + outputBuffer.position() + ", " + outputBuffer.remaining() );
+
+                    Log.d(TAG, "time used(format change): " + (System.currentTimeMillis()-before) + ", len: " + arr.length);
+
+                    Image image = null;
+//                    image = decoder.getOutputImage(outputBufferId);
+//                    Log.d(TAG, "image info: " + image.getFormat() + ", " +
+//                            image.getPlanes()[1].getBuffer().remaining() + ", " +
+//                            image.getPlanes()[1].getPixelStride() + ", " +
+//                            image.getPlanes()[1].getRowStride());
+//					byte[] arr1 = JpegEncoder.getDataFromImage(image, JpegEncoder.COLOR_FormatNV21);
+//                    Log.d(TAG, "time used(format change): " + (System.currentTimeMillis()-before) + ", len: " + arr.length);
+
+//                    ByteBuffer buffer = image.getPlanes()[0].getBuffer();
+//                    byte[] arr = new byte[buffer.remaining()];
+//                    buffer.get(arr);
+//                    if (mQueue != null) {
+//                        try {
+//                            mQueue.put(arr);
+//                        } catch (InterruptedException e) {
+//                            e.printStackTrace();
+//                        }
+//                    }
 
                     if (outputImageFormat != null) {
                         String fileName;
                         switch (outputImageFormat) {
                             case I420:
-                                fileName = OUTPUT_DIR + String.format("frame_%05d_I420_%dx%d.yuv", outputFrameCount, width, height);
+                                fileName = OUTPUT_DIR + String.format("frame_%05d_I420_%dx%d.yuv", JpegFrameCount, width, height);
                                 dumpFile(fileName, getDataFromImage(image, COLOR_FormatI420));
                                 break;
                             case NV21:
-                                fileName = OUTPUT_DIR + String.format("frame_%05d_NV21_%dx%d.yuv", outputFrameCount, width, height);
+                                fileName = OUTPUT_DIR + String.format("frame_%05d_NV21_%dx%d.yuv", JpegFrameCount, width, height);
                                 dumpFile(fileName, getDataFromImage(image, COLOR_FormatNV21));
                                 break;
                             case JPEG:
-                                fileName = OUTPUT_DIR + String.format("frame_%05d.jpg", outputFrameCount);
-                                compressToJpeg(fileName, image);
+                                fileName = OUTPUT_DIR + String.format("frame_%05d.jpg", info.presentationTimeUs/(1000*1000));
+//                                compressToJpeg(fileName, image);
+                                if (arr != null) {
+                                    encodeAndOutput(arr, fileName);
+                                }
                                 break;
                         }
                     }
-                    image.close();
-                    decoder.releaseOutputBuffer(outputBufferId, true);
+                    if (image != null)
+                        image.close();
+                    mToSeekPTS = JpegFrameCount * SAMPLING_PERIOD;
+//                    mToSeek = true;
+                    mJpegEncTime += (System.currentTimeMillis() - before);
+                    Log.d(TAG, "time used(jpeg encode): " + (System.currentTimeMillis()-before));
+                    //outputSurface.awaitNewImage();
+                    //outputSurface.drawImage(true);
                 }
+                decoder.releaseOutputBuffer(outputBufferId, true);
             }
         }
+        mTotalUsedTime = System.currentTimeMillis() - mDecodeTimeStart;
+        Log.e(TAG, "seek used time: " + mSeekUsedTime + "ms");
+        Log.e(TAG, "jpeg encdoe time: " + mJpegEncTime + "ms, count: " + JpegFrameCount);
+        Log.e(TAG, "total used time: " + mTotalUsedTime + "ms, Frame in: " + InputFrameCount + ", out: " + outputFrameCount);
         if (callback != null) {
             callback.onFinishDecode();
         }
     }
 
-    private static int selectTrack(MediaExtractor extractor) {
+    public void readTo(Long pts)
+    {
+        long beforeSeek = mExtractor.getSampleTime()/1000;
+        long pts_now = beforeSeek;
+//        if (VERBOSE) Log.d(TAG, "SampleSize -> readTo: " + pts + ", Before: " + beforeSeek);
+
+        //分配缓冲
+        ByteBuffer inputBuffer = ByteBuffer.allocate(mVideoMaxInputSize);
+        while(pts > pts_now) {
+            int sampleSize = mExtractor.readSampleData(inputBuffer, 0);
+            if (sampleSize < 0) {
+                Log.e(TAG, "SampleSize -> readTo: " + pts + ", error");
+                return;
+            } else {
+                mExtractor.advance();
+                pts_now = mExtractor.getSampleTime()/1000;
+                int sampleFlag = mExtractor.getSampleFlags();
+//                if (VERBOSE) Log.d(TAG, "SampleSize -> readTo: " + pts_now);
+            }
+        }
+//        Log.d(TAG, "SampleSize -> readTo: " + pts + ", Before: " + beforeSeek + ", After: " + pts_now);
+    }
+
+    public void GotIFramePTS() {
+        long beforePTS = 0;
+        mIFramePTS.add(beforePTS);
+        while(true) {
+            mExtractor.seekTo(beforePTS+1, MediaExtractor.SEEK_TO_NEXT_SYNC);
+            Long afterSeek = mExtractor.getSampleTime();
+            if(afterSeek > beforePTS) {
+                Log.e(TAG, "I Frame PTS: " + afterSeek);
+                mIFramePTS.add(afterSeek);
+                beforePTS = afterSeek;
+            } else {
+                Log.e(TAG, "I Frame PTS: " + afterSeek + " last: " + beforePTS + " break");
+                break;
+            }
+        }
+        mExtractor.seekTo(beforePTS+1, MediaExtractor.SEEK_TO_CLOSEST_SYNC);
+    }
+
+    public boolean seekTo(int i) {
+        if (mToSeek) {
+            if (i < mIFramePTS.size()) {
+                mExtractor.seekTo(mIFramePTS.get(i), MediaExtractor.SEEK_TO_CLOSEST_SYNC);
+            } else {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    public void seekTo(long i) {
+        long before = System.currentTimeMillis();
+        long beforeSeek = mExtractor.getSampleTime()/1000;
+        if (VERBOSE)
+            Log.d(TAG, "SampleSize -> SeekTo: " + i + ", Before: " + beforeSeek);
+
+        if (i <= beforeSeek) {
+            Log.e(TAG, "SampleSize -> SeekTo(" + i + " < " + beforeSeek + ") ===> can't seekTo");
+        } else {
+            mExtractor.seekTo(i * 1000, MediaExtractor.SEEK_TO_PREVIOUS_SYNC);
+            long afterSeek = mExtractor.getSampleTime() / 1000;
+
+            if(afterSeek < i) {
+                readTo(beforeSeek);
+            }
+//          if(afterSeek < beforeSeek) {
+//			    readTo(beforeSeek);
+//		    }
+        }
+
+        if (VERBOSE)
+            Log.d(TAG, "SampleSize -> SeekTo After : " + mExtractor.getSampleTime() / 1000);
+        mToSeek = false;
+        mSeekUsedTime += (System.currentTimeMillis() - before);
+//		lastOffset = mExtractor.getSampleTime() / 1000;
+
+//		startMs = System.currentTimeMillis();
+//		diff = (lastOffset - lastPresentationTimeUs / 1000);
+//
+//		Log.d(TAG, "SeekTo with diff : " + diff);
+    }
+
+    public void encodeAndOutput(byte[] arr, String file) {
+        try {
+            long before = System.currentTimeMillis();
+            Log.d(TAG, "out file: " + file);
+            FileOutputStream outStream;
+            outStream = new FileOutputStream(file);
+
+            byte[] result = JpegEncoder.encode(arr, mWidth, mHeight);
+            outStream.write(result);
+
+//			Rect rect = outImage.getCropRect();
+//			YuvImage yuvImage = new YuvImage(arr, ImageFormat.NV21, rect.width(), rect.height(), null);
+//			Log.d(TAG, "time used(yuv image): " + (System.currentTimeMillis()-before));
+//			yuvImage.compressToJpeg(rect, 100, outStream);
+
+            Log.d(TAG, "time used(compress to jpeg): " + (System.currentTimeMillis()-before) + ", len: " + result.length);
+            outStream.close();
+        } catch (IOException ioe) {
+            Log.d(TAG, ioe.toString());
+//			throw new RuntimeException("Unable to create output file ", ioe);
+        }
+    }
+
+    private int selectTrack(MediaExtractor extractor) {
         int numTracks = extractor.getTrackCount();
         for (int i = 0; i < numTracks; i++) {
             MediaFormat format = extractor.getTrackFormat(i);
@@ -239,7 +448,7 @@ public class VideoToFrames implements Runnable {
         return -1;
     }
 
-    private static boolean isImageFormatSupported(Image image) {
+    private boolean isImageFormatSupported(Image image) {
         int format = image.getFormat();
         switch (format) {
             case ImageFormat.YUV_420_888:
@@ -250,7 +459,7 @@ public class VideoToFrames implements Runnable {
         return false;
     }
 
-    private static byte[] getDataFromImage(Image image, int colorFormat) {
+    private byte[] getDataFromImage(Image image, int colorFormat) {
         if (colorFormat != COLOR_FormatI420 && colorFormat != COLOR_FormatNV21) {
             throw new IllegalArgumentException("only support COLOR_FormatI420 " + "and COLOR_FormatNV21");
         }
@@ -329,7 +538,7 @@ public class VideoToFrames implements Runnable {
         return data;
     }
 
-    private static void dumpFile(String fileName, byte[] data) {
+    private void dumpFile(String fileName, byte[] data) {
         FileOutputStream outStream;
         try {
             outStream = new FileOutputStream(fileName);

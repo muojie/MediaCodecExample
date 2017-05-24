@@ -5,13 +5,16 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 
+import android.graphics.ImageFormat;
 import android.graphics.Rect;
+import android.graphics.YuvImage;
 import android.media.Image;
 import android.media.MediaCodec;
 import android.media.MediaCodec.BufferInfo;
 import android.media.MediaExtractor;
 import android.media.MediaFormat;
 import android.os.Build;
+import android.os.Environment;
 import android.util.Log;
 import android.view.Surface;
 
@@ -23,8 +26,15 @@ public class VideoDecoderThread extends Thread {
 	private static final boolean VERBOSE = true;           // lots of logging
 	private MediaExtractor mExtractor;
 	private MediaCodec mDecoder;
+	private boolean mSeeked = false;
+	private boolean mToSeek = false;
+	private int mToSeekPTS = 0;
+	private long lastSeekedTo = 0;
+	private long lastOffset = 0;
 	private int mWidth = 0;
 	private int mHeight = 0;
+	private static final int SAMPLING_PERIOD	= 3000;				//3s
+	private int mFPS = 30;
 	
 	private boolean eosReceived;
 	
@@ -64,6 +74,28 @@ public class VideoDecoderThread extends Thread {
 		return true;
 	}
 
+	public void seekTo(int i) {
+		mSeeked = true;
+		Log.d(TAG, "SeekTo Requested to : " + i);
+		long beforeSeek = mExtractor.getSampleTime()/1000;
+		Log.d(TAG, "SampleTime Before SeekTo : " + mExtractor.getSampleTime() / 1000);
+		mExtractor.seekTo(i * 1000, MediaExtractor.SEEK_TO_PREVIOUS_SYNC);
+		long afterSeek = mExtractor.getSampleTime()/1000;
+		Log.d(TAG, "SampleTime After SeekTo : " + mExtractor.getSampleTime() / 1000);
+		mToSeek = false;
+
+//		if(afterSeek < beforeSeek) {
+//			mExtractor.seekTo(beforeSeek*1000, MediaExtractor.SEEK_TO_PREVIOUS_SYNC);
+//		}
+
+//		lastOffset = mExtractor.getSampleTime() / 1000;
+
+//		startMs = System.currentTimeMillis();
+//		diff = (lastOffset - lastPresentationTimeUs / 1000);
+//
+//		Log.d(TAG, "SeekTo with diff : " + diff);
+	}
+
 	@Override
 	public void run() {
 		BufferInfo info = new BufferInfo();
@@ -85,8 +117,11 @@ public class VideoDecoderThread extends Thread {
 					ByteBuffer inputBuffer;
 					// SDK_INT > LOLLIPOP
 					inputBuffer = mDecoder.getInputBuffer(inputIndex);
-
+					if (mToSeek) {
+						seekTo(mToSeekPTS);
+					}
 					int sampleSize = mExtractor.readSampleData(inputBuffer, 0);
+					lastOffset = mExtractor.getSampleTime() / 1000;
 					
 					if (mExtractor.advance() && sampleSize > 0) {
 						mDecoder.queueInputBuffer(inputIndex, 0, sampleSize, mExtractor.getSampleTime(), 0);
@@ -131,59 +166,25 @@ public class VideoDecoderThread extends Thread {
 				}
 
 				boolean doRender = (info.size != 0);
+				doRender = Math.abs(info.presentationTimeUs/1000 - decodeCount*SAMPLING_PERIOD) < 100;
 				// As soon as we call releaseOutputBuffer, the buffer will be forwarded
 				// to SurfaceTexture to convert to a texture.  The API doesn't guarantee
 				// that the texture will be available before the call returns, so we
 				// need to wait for the onFrameAvailable callback to fire.
 				if (doRender) {
-					if (VERBOSE) Log.d(TAG, "awaiting decode of frame " + decodeCount);
+					if (VERBOSE) Log.d(TAG, "awaiting decode of frame " + decodeCount + ", pts: " + info.presentationTimeUs/1000);
 					MediaFormat bufferFormat = mDecoder.getOutputFormat(outIndex);
 					System.err.println(bufferFormat);
 
 					//ByteBuffer outputBuffer = codec.getOutputBuffer(outIndex);
 					Image outImage = mDecoder.getOutputImage(outIndex);
-					System.err.println(outImage.getPlanes()[1].getBuffer().remaining());
-					System.err.println(outImage.getPlanes()[1].getPixelStride());
-					System.err.println(outImage.getPlanes()[1].getRowStride());
-
-/*
-                            System.err.println(outputBuffer.limit());
-                            System.err.println(outputBuffer.capacity());
-                            System.err.println(outputBuffer.mark());
-                            System.err.println(outputBuffer.position());
-                            System.err.println(outputBuffer.remaining());
-*/
-/*
-					FileOutputStream outStream;
-					try {
-						outStream = new FileOutputStream(String.format("./output-%03d.jpg", decodeCount));
-						//outStream = new FileOutputStream("/dev/null");
-					} catch (IOException ioe) {
-						throw new RuntimeException("Unable to create output file ", ioe);
+					if (outImage != null) {
+						encodeAndOutput(outImage, decodeCount);
 					}
 
-					ByteArrayOutputStream stream = new ByteArrayOutputStream();
-					//System.err.println(outputBuffer.remaining());
-					Rect rect = new Rect(0, 0, mWidth, mHeight);
-
-					long before = System.currentTimeMillis();
-					byte[] arr = JpegEncoder.getDataFromImage(outImage, JpegEncoder.COLOR_FormatNV21);
-					byte[] result = JpegEncoder.encode(arr, mWidth, mHeight);
-					System.err.println(result.length);
-					System.err.println("time");
-					System.err.println(System.currentTimeMillis()-before);
-					//YuvImage image = new YuvImage(arr, ImageFormat.NV21, width, height, null);
-					//System.err.println(System.currentTimeMillis()-before);
-					//image.compressToJpeg(rect, 100, outStream);
-					try {
-						outStream.write(result);
-						System.err.println(System.currentTimeMillis()-before);
-						outStream.close();
-					} catch (Exception ignore) {
-					}
-					//outputSurface.awaitNewImage();
-					//outputSurface.drawImage(true);
-					decodeCount++;*/
+					decodeCount++;
+					mToSeekPTS = decodeCount * SAMPLING_PERIOD;
+					mToSeek = true;
 				}
 				
 				mDecoder.releaseOutputBuffer(outIndex, true /* Surface init */);
@@ -201,7 +202,62 @@ public class VideoDecoderThread extends Thread {
 		mDecoder.release();
 		mExtractor.release();
 	}
-	
+
+	private static void dumpFile(String fileName, byte[] data) {
+		FileOutputStream outStream;
+		try {
+			outStream = new FileOutputStream(fileName);
+		} catch (IOException ioe) {
+			throw new RuntimeException("Unable to create output file " + fileName, ioe);
+		}
+		try {
+			outStream.write(data);
+			outStream.close();
+		} catch (IOException ioe) {
+			throw new RuntimeException("failed writing data to file " + fileName, ioe);
+		}
+	}
+
+	public void encodeAndOutput(Image outImage, int decodeCount) {
+		Log.d(TAG, "image info: " + outImage.getPlanes()[1].getBuffer().remaining() + ", " +
+				outImage.getPlanes()[1].getPixelStride() + ", " +
+				outImage.getPlanes()[1].getRowStride());
+		/*
+		Log.d(TAG, "buffer info: " + outputBuffer.limit() + ", " + outputBuffer.capacity() + ", " +
+				outputBuffer.mark() + ", " + outputBuffer.position() + ", " + outputBuffer.remaining() );
+				outImage.getPlanes()[1].getRowStride());
+				*/
+
+		String filePath = Environment.getExternalStorageDirectory() + "/Pictures/";
+		String file = String.format(filePath + "output-%03d.jpg", decodeCount);
+		Log.d(TAG, "out file: " + file);
+//		dumpFile(file, JpegEncoder.getDataFromImage(outImage, JpegEncoder.COLOR_FormatNV21));
+
+		try {
+			FileOutputStream outStream;
+			outStream = new FileOutputStream(file);
+			long before = System.currentTimeMillis();
+			byte[] arr = JpegEncoder.getDataFromImage(outImage, JpegEncoder.COLOR_FormatNV21);
+
+			byte[] result = JpegEncoder.encode(arr, mWidth, mHeight);
+			Log.d(TAG, "time used(yuv image): " + (System.currentTimeMillis()-before) + ", len: " + result.length);
+			outStream.write(result);
+
+//			Rect rect = outImage.getCropRect();
+//			YuvImage yuvImage = new YuvImage(arr, ImageFormat.NV21, rect.width(), rect.height(), null);
+//			Log.d(TAG, "time used(yuv image): " + (System.currentTimeMillis()-before));
+//			yuvImage.compressToJpeg(rect, 100, outStream);
+
+			Log.d(TAG, "time used(compress to jpeg): " + (System.currentTimeMillis()-before));
+			outStream.close();
+		} catch (IOException ioe) {
+			Log.d(TAG, ioe.toString());
+//			throw new RuntimeException("Unable to create output file ", ioe);
+		}
+		//outputSurface.awaitNewImage();
+		//outputSurface.drawImage(true);
+	}
+
 	public void close() {
 		eosReceived = true;
 	}

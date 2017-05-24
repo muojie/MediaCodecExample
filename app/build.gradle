@@ -14,7 +14,11 @@ android {
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.txt'
         }
     }
-    productFlavors {
+    sourceSets.main {
+        jniLibs.srcDirs 'src/main/libs'
+        jni.srcDirs = [] // This prevents the auto generation of Android.mk
+    }
+        productFlavors {
     }
 }
 

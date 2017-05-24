@@ -17,11 +17,11 @@ public class JpegEncoder {
     private static final String TAG = "JpegEncoder";
     private static final boolean VERBOSE = true;           // lots of logging
 
-//    static {
-//        System.loadLibrary("hm_jpeg_encoder");
-//    }
-//
-//    public static native byte[] encode(byte[] arr, int width, int height);
+    static {
+        System.loadLibrary("hm_jpeg_encoder");
+    }
+
+    public static native byte[] encode(byte[] arr, int width, int height);
 
     /**
      * Selects the video track, if any.
@@ -45,8 +45,8 @@ public class JpegEncoder {
         return -1;
     }
 
-    private static final int COLOR_FormatI420 = 1;
-    private static final int COLOR_FormatNV21 = 2;
+    public static final int COLOR_FormatI420 = 1;
+    public static final int COLOR_FormatNV21 = 2;
 
     public static byte[] getDataFromImage(Image image, int colorFormat) {
         if (colorFormat != COLOR_FormatI420 && colorFormat != COLOR_FormatNV21) {

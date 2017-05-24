@@ -11,6 +11,7 @@ import android.graphics.YuvImage;
 import android.media.Image;
 import android.media.MediaCodec;
 import android.media.MediaCodec.BufferInfo;
+import android.media.MediaCodecInfo;
 import android.media.MediaExtractor;
 import android.media.MediaFormat;
 import android.os.Build;
@@ -56,12 +57,12 @@ public class VideoDecoderThread extends Thread {
 					try {
 						Log.d(TAG, "format : " + format);
 						mDecoder.configure(format, null, null, 0 /* Decoder */);
-						
+
 					} catch (IllegalStateException e) {
 						Log.e(TAG, "codec '" + mime + "' failed configuration. " + e);
 						return false;
 					}
-					
+					showSupportedColorFormat(mDecoder.getCodecInfo().getCapabilitiesForType(mime));
 					mDecoder.start();
 					break;
 				}
@@ -174,13 +175,32 @@ public class VideoDecoderThread extends Thread {
 				if (doRender) {
 					if (VERBOSE) Log.d(TAG, "awaiting decode of frame " + decodeCount + ", pts: " + info.presentationTimeUs/1000);
 					MediaFormat bufferFormat = mDecoder.getOutputFormat(outIndex);
-					System.err.println(bufferFormat);
+					Log.d(TAG, "buffer format: " + bufferFormat);
+					long before = System.currentTimeMillis();
 
-					//ByteBuffer outputBuffer = codec.getOutputBuffer(outIndex);
-					Image outImage = mDecoder.getOutputImage(outIndex);
-					if (outImage != null) {
-						encodeAndOutput(outImage, decodeCount);
+					ByteBuffer outputBuffer = mDecoder.getOutputBuffer(outIndex);
+					byte[] arr = new byte[outputBuffer.remaining()];
+					outputBuffer.get(arr, 0, arr.length);
+					Log.d(TAG, "buffer info: " + outputBuffer.limit() + ", " + outputBuffer.capacity() + ", " +
+						outputBuffer.mark() + ", " + outputBuffer.position() + ", " + outputBuffer.remaining() );
+
+//					Image outImage = mDecoder.getOutputImage(outIndex);
+//					Log.d(TAG, "image info: " + outImage.getFormat() + ", " +
+//							outImage.getPlanes()[1].getBuffer().remaining() + ", " +
+//							outImage.getPlanes()[1].getPixelStride() + ", " +
+//							outImage.getPlanes()[1].getRowStride());
+//					byte[] arr = JpegEncoder.getDataFromImage(outImage, JpegEncoder.COLOR_FormatNV21);
+
+					Log.d(TAG, "time used(format change): " + (System.currentTimeMillis()-before) + ", len: " + arr.length);
+
+					if (arr != null) {
+						String filePath = Environment.getExternalStorageDirectory() + "/Pictures/";
+						String file = String.format(filePath + "output-%03d.jpg", decodeCount);
+//						dumpFile(file, arr);
+						encodeAndOutput(arr, file);
 					}
+					//outputSurface.awaitNewImage();
+					//outputSurface.drawImage(true);
 
 					decodeCount++;
 					mToSeekPTS = decodeCount * SAMPLING_PERIOD;
@@ -218,29 +238,14 @@ public class VideoDecoderThread extends Thread {
 		}
 	}
 
-	public void encodeAndOutput(Image outImage, int decodeCount) {
-		Log.d(TAG, "image info: " + outImage.getPlanes()[1].getBuffer().remaining() + ", " +
-				outImage.getPlanes()[1].getPixelStride() + ", " +
-				outImage.getPlanes()[1].getRowStride());
-		/*
-		Log.d(TAG, "buffer info: " + outputBuffer.limit() + ", " + outputBuffer.capacity() + ", " +
-				outputBuffer.mark() + ", " + outputBuffer.position() + ", " + outputBuffer.remaining() );
-				outImage.getPlanes()[1].getRowStride());
-				*/
-
-		String filePath = Environment.getExternalStorageDirectory() + "/Pictures/";
-		String file = String.format(filePath + "output-%03d.jpg", decodeCount);
-		Log.d(TAG, "out file: " + file);
-//		dumpFile(file, JpegEncoder.getDataFromImage(outImage, JpegEncoder.COLOR_FormatNV21));
-
+	public void encodeAndOutput(byte[] arr, String file) {
 		try {
+			long before = System.currentTimeMillis();
+			Log.d(TAG, "out file: " + file);
 			FileOutputStream outStream;
 			outStream = new FileOutputStream(file);
-			long before = System.currentTimeMillis();
-			byte[] arr = JpegEncoder.getDataFromImage(outImage, JpegEncoder.COLOR_FormatNV21);
 
 			byte[] result = JpegEncoder.encode(arr, mWidth, mHeight);
-			Log.d(TAG, "time used(yuv image): " + (System.currentTimeMillis()-before) + ", len: " + result.length);
 			outStream.write(result);
 
 //			Rect rect = outImage.getCropRect();
@@ -248,17 +253,45 @@ public class VideoDecoderThread extends Thread {
 //			Log.d(TAG, "time used(yuv image): " + (System.currentTimeMillis()-before));
 //			yuvImage.compressToJpeg(rect, 100, outStream);
 
-			Log.d(TAG, "time used(compress to jpeg): " + (System.currentTimeMillis()-before));
+			Log.d(TAG, "time used(compress to jpeg): " + (System.currentTimeMillis()-before) + ", len: " + result.length);
 			outStream.close();
 		} catch (IOException ioe) {
 			Log.d(TAG, ioe.toString());
 //			throw new RuntimeException("Unable to create output file ", ioe);
 		}
-		//outputSurface.awaitNewImage();
-		//outputSurface.drawImage(true);
 	}
 
 	public void close() {
 		eosReceived = true;
+	}
+
+	private void showSupportedColorFormat(MediaCodecInfo.CodecCapabilities caps) {
+		System.out.print("supported color format: ");
+		for (int c : caps.colorFormats) {
+			System.out.print(c + "\t");
+		}
+		System.out.println();
+	}
+
+	/**
+	 * Selects the video track, if any.
+	 *
+	 * @return the track index, or -1 if no video track is found.
+	 */
+	private static int selectTrack(MediaExtractor extractor) {
+		// Select the first video track we find, ignore the rest.
+		int numTracks = extractor.getTrackCount();
+		for (int i = 0; i < numTracks; i++) {
+			MediaFormat format = extractor.getTrackFormat(i);
+			String mime = format.getString(MediaFormat.KEY_MIME);
+			if (mime.startsWith("video/")) {
+				if (VERBOSE) {
+					Log.d(TAG, "Extractor selected track " + i + " (" + mime + "): " + format);
+				}
+				return i;
+			}
+		}
+
+		return -1;
 	}
 }

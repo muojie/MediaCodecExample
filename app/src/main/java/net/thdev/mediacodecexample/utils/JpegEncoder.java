@@ -23,28 +23,6 @@ public class JpegEncoder {
 
     public static native byte[] encode(byte[] arr, int width, int height);
 
-    /**
-     * Selects the video track, if any.
-     *
-     * @return the track index, or -1 if no video track is found.
-     */
-    private static int selectTrack(MediaExtractor extractor) {
-        // Select the first video track we find, ignore the rest.
-        int numTracks = extractor.getTrackCount();
-        for (int i = 0; i < numTracks; i++) {
-            MediaFormat format = extractor.getTrackFormat(i);
-            String mime = format.getString(MediaFormat.KEY_MIME);
-            if (mime.startsWith("video/")) {
-                if (VERBOSE) {
-                    Log.d(TAG, "Extractor selected track " + i + " (" + mime + "): " + format);
-                }
-                return i;
-            }
-        }
-
-        return -1;
-    }
-
     public static final int COLOR_FormatI420 = 1;
     public static final int COLOR_FormatNV21 = 2;
 
@@ -60,7 +38,7 @@ public class JpegEncoder {
         Image.Plane[] planes = image.getPlanes();
         byte[] data = new byte[width * height * ImageFormat.getBitsPerPixel(format) / 8];
         byte[] rowData = new byte[planes[0].getRowStride()];
-        if (VERBOSE) Log.v(TAG, "get data from " + planes.length + " planes");
+        if (VERBOSE) Log.v(TAG, "get data from " + planes.length + " planes, format: " + format);
         int channelOffset = 0;
         int outputStride = 1;
         for (int i = 0; i < planes.length; i++) {
@@ -91,13 +69,9 @@ public class JpegEncoder {
             ByteBuffer buffer = planes[i].getBuffer();
             int rowStride = planes[i].getRowStride();
             int pixelStride = planes[i].getPixelStride();
-            if (VERBOSE) {
-                Log.v(TAG, "pixelStride " + pixelStride);
-                Log.v(TAG, "rowStride " + rowStride);
-                Log.v(TAG, "width " + width);
-                Log.v(TAG, "height " + height);
-                Log.v(TAG, "buffer size " + buffer.remaining());
-            }
+            if (VERBOSE)
+                Log.v(TAG, "pixelStride " + pixelStride + " rowStride " + rowStride +
+                        " width " + width + " height " + height + " buffer size " + buffer.remaining());
             int shift = (i == 0) ? 0 : 1;
             int w = width >> shift;
             int h = height >> shift;

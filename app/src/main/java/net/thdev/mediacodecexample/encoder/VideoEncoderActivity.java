@@ -14,7 +14,7 @@ import android.view.SurfaceView;
 public class VideoEncoderActivity extends Activity implements SurfaceHolder.Callback {
     private VideoEncoderThread mVideoEncoder;
 
-    private static final String FILE_PATH = Environment.getExternalStorageDirectory() + "/video.mp4";
+    private static final String FILE_PATH = Environment.getExternalStorageDirectory() + "/Tennis_1920x1080_24.yuv";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -35,20 +35,19 @@ public class VideoEncoderActivity extends Activity implements SurfaceHolder.Call
     @Override
     public void surfaceChanged(SurfaceHolder holder, int format, int width,	int height) {
         if (mVideoEncoder != null) {
-            if (mVideoEncoder.init(holder.getSurface(), FILE_PATH)) {
+//            if (mVideoEncoder.init(holder.getSurface(), FILE_PATH)) {
+            if (mVideoEncoder.init(1920, 1080, 25, 5000*1000, FILE_PATH)) {
                 mVideoEncoder.start();
-
             } else {
                 mVideoEncoder = null;
             }
-
         }
     }
 
     @Override
     public void surfaceDestroyed(SurfaceHolder holder) {
         if (mVideoEncoder != null) {
-            mVideoEncoder.close();
+            mVideoEncoder.StopThread();
         }
     }
 

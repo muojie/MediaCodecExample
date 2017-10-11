@@ -19,6 +19,7 @@
             android:layout_height="wrap_content"
             android:layout_below="@+id/text_file_path_input"
             android:layout_toLeftOf="@+id/button_file_path_input"
+            android:text="/storage/emulated/0/news"
             android:id="@+id/file_path_input"/>
         <Button
             android:id="@+id/button_file_path_input"
@@ -41,6 +42,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_below="@+id/text_folder_created"
+            android:text="videoToJPEG"
             android:id="@+id/folder_created"/>
     </RelativeLayout>
     <RelativeLayout

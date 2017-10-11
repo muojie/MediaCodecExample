@@ -9,6 +9,7 @@
         android:targetSdkVersion="19" />
 
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
 
     <application
         android:allowBackup="true"
@@ -16,7 +17,7 @@
         android:label="@string/app_name"
         android:theme="@style/AppTheme" >
         <activity
-            android:name="net.thdev.mediacodecexample.MainActivity"
+            android:name="net.thdev.mediacodecexample.MyMainActivity"
             android:label="@string/app_name" >
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -31,7 +32,6 @@
             android:exported="false"
             android:label="@string/activity_audio_decoder" >
             <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
 
                 <category android:name="net.thdev.mediacodecexample.SAMPLE_CODE" />
             </intent-filter>
@@ -40,11 +40,11 @@
         <!-- Decoder/VideoDecoder -->
         <activity
             android:name="net.thdev.mediacodecexample.decoder.VideoDecoderActivity"
-            android:exported="false"
             android:label="@string/activity_video_decoder"
             android:screenOrientation="sensorLandscape" >
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
 
                 <category android:name="net.thdev.mediacodecexample.SAMPLE_CODE" />
             </intent-filter>

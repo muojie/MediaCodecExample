@@ -23,12 +23,14 @@ import android.widget.TextView;
 import net.thdev.mediacodec.R;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
 public class MyMainActivity extends Activity implements VideoToFrames.Callback {
     private static final String TAG = "MyMainActivity";
     private static final int REQUEST_CODE_GET_FILE_PATH = 1;
+    private static final int REQUEST_CODE_PICK_DIRECTORY = 1;
     private static final int MSG_WHAT_UPDATE_INFO = 0;
     private static final int MSG_WHAT_START_DECODE = 1;
     private OutputImageFormat outputImageFormat;
@@ -37,11 +39,12 @@ public class MyMainActivity extends Activity implements VideoToFrames.Callback {
 
     VideoToFrames mVideoToFrames = null;
     private List<String> mFileLists = new ArrayList<String>();  //结果 List
+    private int mVideoCount = 0;
     private int mDecodeFrameCount = 0;
     private int mDecodeOneVideo = 0;
-    private long mTotalUsedTime = 0;
-    private long mJpegEncTime = 0;
-    private long mTotalVideoDuration = 0;
+    private float mTotalUsedTime = 0;
+    private float mJpegEncTime = 0;
+    private float mTotalVideoDuration = 0;
 
     final Handler handler = new Handler() {
         public void handleMessage(Message msg) {
@@ -101,7 +104,14 @@ public class MyMainActivity extends Activity implements VideoToFrames.Callback {
 //            VideoToFrames videoToFrames3 = new VideoToFrames();
             mVideoToFrames.setCallback(self);
             try {
-                mVideoToFrames.setSaveFrames(outputDir + "1", outputImageFormat);
+                File theDir = new File(outputDir);
+                if (!theDir.exists()) {
+                    theDir.mkdirs();
+                } else if (!theDir.isDirectory()) {
+                    throw new IOException("Not a directory");
+                }
+                mVideoCount++;
+                mVideoToFrames.setSaveFrames(outputDir + "/" + Integer.toString(mVideoCount), outputImageFormat);
 //                videoToFrames1.setSaveFrames(outputDir + "2", outputImageFormat);
 //                videoToFrames2.setSaveFrames(outputDir + "3", outputImageFormat);
 //                videoToFrames3.setSaveFrames(outputDir + "4", outputImageFormat);
@@ -142,11 +152,14 @@ public class MyMainActivity extends Activity implements VideoToFrames.Callback {
     }
 
     private void getFilePath(int requestCode) {
-        Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
-        intent.setType("*/*");
-        intent.addCategory(Intent.CATEGORY_OPENABLE);
+//        Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+//        intent.setType("*/*");
+//        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        Intent intent = new Intent("com.estrongs.action.PICK_DIRECTORY");
+        intent.putExtra("com.estrongs.intent.extra.TITLE", "Select a Directory");
         if (intent.resolveActivity(getPackageManager()) != null) {
-            startActivityForResult(Intent.createChooser(intent, "Select a File"), requestCode);
+//            startActivityForResult(Intent.createChooser(intent, "Select a File"), requestCode);
+            startActivityForResult(intent, REQUEST_CODE_PICK_DIRECTORY);
         } else {
             new AlertDialog.Builder(this).setTitle("未找到文件管理器")
                     .setMessage("请安装文件管理器以选择文件")
@@ -217,8 +230,8 @@ public class MyMainActivity extends Activity implements VideoToFrames.Callback {
         } else {
             msg.what = MSG_WHAT_UPDATE_INFO;
             msg.obj = "完成！" + mDecodeFrameCount + "张图片已存储到" + outputDir;
-            msg.obj += ", 视频总时长: " + mTotalVideoDuration + ", 总耗时(ms): " + mTotalUsedTime;
-            msg.obj += ", jpeg编码耗时(ms): " + mJpegEncTime;
+            msg.obj += ", 视频总时长(s): " + mTotalVideoDuration/1000 + ", 总耗时(s): " + mTotalUsedTime/1000;
+            msg.obj += ", jpeg编码耗时(s): " + mJpegEncTime/1000;
             handler.sendMessage(msg);
         }
     }

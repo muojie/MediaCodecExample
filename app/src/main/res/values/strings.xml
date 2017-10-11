@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <string name="app_name">VideoToJpeg</string>
+    <string name="app_name">MediaCodecExample</string>
+    <string name="video_to_jpeg">VideoToJpeg</string>
     <string name="hello_world">Hello world!</string>
     <string name="action_settings">Settings</string>
 
@@ -11,6 +12,9 @@
 
     <!-- Video decoder -->
     <string name="activity_video_decoder">Decoder/<b>Video Decoder</b></string>
+
+    <!-- Video encoder -->
+    <string name="activity_video_encoder">Encoder/<b>Video Encoder</b></string>
 
     <string name="my_app_name">VideoToJpeg</string>
     <string name="video_file_path">视频文件路径</string>

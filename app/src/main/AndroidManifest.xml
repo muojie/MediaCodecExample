@@ -17,12 +17,31 @@
         android:label="@string/app_name"
         android:theme="@style/AppTheme" >
         <activity
-            android:name="net.thdev.mediacodecexample.MyMainActivity"
+            android:name="net.thdev.mediacodecexample.MainActivity"
             android:label="@string/app_name" >
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name="net.thdev.mediacodecexample.MyMainActivity"
+            android:label="@string/video_to_jpeg" >
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Encoder/VideoEncoder -->
+        <activity
+            android:name="net.thdev.mediacodecexample.encoder.VideoEncoderActivity"
+            android:exported="false"
+            android:label="@string/activity_video_encoder" >
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="net.thdev.mediacodecexample.SAMPLE_CODE" />
             </intent-filter>
         </activity>
 
@@ -32,7 +51,7 @@
             android:exported="false"
             android:label="@string/activity_audio_decoder" >
             <intent-filter>
-
+                <action android:name="android.intent.action.MAIN" />
                 <category android:name="net.thdev.mediacodecexample.SAMPLE_CODE" />
             </intent-filter>
         </activity>
@@ -44,8 +63,6 @@
             android:screenOrientation="sensorLandscape" >
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-
                 <category android:name="net.thdev.mediacodecexample.SAMPLE_CODE" />
             </intent-filter>
         </activity>

@@ -14,7 +14,7 @@ import android.view.SurfaceView;
 public class VideoEncoderActivity extends Activity implements SurfaceHolder.Callback {
     private VideoEncoderThread mVideoEncoder;
 
-    private static final String FILE_PATH = Environment.getExternalStorageDirectory() + "/Tennis_1920x1080_24.yuv";
+    private static final String FILE_PATH = Environment.getExternalStorageDirectory() + "/YUV_1080p/BasketballDrive_1920x1080_50.yuv";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {

@@ -3,17 +3,11 @@ package net.thdev.mediacodecexample.encoder;
 import android.media.MediaCodec;
 import android.media.MediaCodec.BufferInfo;
 import android.media.MediaCodecInfo;
-import android.media.MediaExtractor;
 import android.media.MediaFormat;
-import android.os.Build;
 import android.os.Environment;
 import android.util.Log;
-import android.view.Surface;
-
-import net.thdev.mediacodecexample.utils.JpegEncoder;
 
 import java.io.BufferedOutputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -21,37 +15,30 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 
 public class VideoEncoderThread extends Thread {
-	private static final String VIDEO = "video/";
-	private static final String TAG = "VideoEncoder";
-	private static final boolean VERBOSE = true;           // lots of logging
-	private MediaExtractor mExtractor;
+	private final String TAG = "VideoEncoder";
 	private MediaCodec mEncoder;
 	private int m_width;
 	private int m_height;
 	private int m_framerate;
-	private boolean mToSeek = false;
-	private int mToSeekPTS = 0;
-	private long lastSeekedTo = 0;
-	private long lastOffset = 0;
-	private int mWidth = 0;
-	private int mHeight = 0;
 	private int TIMEOUT_USEC = 12000;
 	private FileInputStream fs;
 	private int mOneFrameLen = 0;
-	private int mFPS = 30;
 
 	byte[] m_info = null;
 
 	public byte[] configbyte;
 
-	public boolean init(int width, int height, int framerate, int bitrate, String yuvPath) {
+	private long time_start;
+
+	public boolean init(int width, int height, int framerate, int bitrate, String name) {
 
 		m_width  = width;
 		m_height = height;
 		m_framerate = framerate;
 		mOneFrameLen = m_width*m_height*3/2;
-
+		path = Environment.getExternalStorageDirectory() + "/" + name + "_" + bitrate/1000 + "k.h264";
 		try {
+			String yuvPath = Environment.getExternalStorageDirectory() + "/YUV_1080p/" + name + ".yuv";
 			fs = new FileInputStream(yuvPath);
 		} catch (Exception e) {
 			Log.e(TAG, e.toString());
@@ -60,8 +47,14 @@ public class VideoEncoderThread extends Thread {
 		MediaFormat mediaFormat = MediaFormat.createVideoFormat("video/avc", width, height);
 		mediaFormat.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible);
 		mediaFormat.setInteger(MediaFormat.KEY_BIT_RATE, bitrate);
-		mediaFormat.setInteger(MediaFormat.KEY_FRAME_RATE, 30);
+
+		mediaFormat.setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR);
+		mediaFormat.setInteger(MediaFormat.KEY_FRAME_RATE, m_framerate);
 		mediaFormat.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 3);
+		mediaFormat.setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileBaseline);// 0x08);
+		mediaFormat.setInteger(MediaFormat.KEY_LEVEL, MediaCodecInfo.CodecProfileLevel.AVCLevel51);//0x01);
+		mediaFormat.setInteger(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, 100000);
+
 		try {
 			mEncoder = MediaCodec.createEncoderByType("video/avc");
 		} catch (IOException e) {
@@ -70,13 +63,12 @@ public class VideoEncoderThread extends Thread {
 		}
 		mEncoder.configure(mediaFormat, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
 		mEncoder.start();
-		showSupportedColorFormat(mEncoder.getCodecInfo().getCapabilitiesForType("video/avc"));
 		createfile();
 
 		return true;
 	}
 
-	private static String path = Environment.getExternalStorageDirectory() + "/test1.h264";
+	private String path = Environment.getExternalStorageDirectory() + "/test1.h264";
 	private BufferedOutputStream outputStream;
 	FileOutputStream outStream;
 	private void createfile(){
@@ -126,7 +118,10 @@ public class VideoEncoderThread extends Thread {
 		byte[] input = null;
 		long pts =  0;
 		long generateIndex = 0;
-
+		byte[] bufferSrc = new byte[mOneFrameLen];
+		byte[] bufferDest = new byte[mOneFrameLen];
+		int count = 0;
+		time_start = System.currentTimeMillis();
 		while (isRuning) {
 //			if (MainActivity.YUVQueue.size() >0){
 //				input = MainActivity.YUVQueue.poll();
@@ -136,10 +131,9 @@ public class VideoEncoderThread extends Thread {
 //			}
 			if (mEncoder != null) {
 				try {
-					byte[] bufferSrc = new byte[mOneFrameLen];
-					byte[] bufferDest = new byte[mOneFrameLen];
-					int len = fs.read(bufferSrc, 0, mOneFrameLen);
-					swapYV12toNV21(bufferSrc, bufferDest, m_width, m_height);
+					int len = fs.read(bufferDest, 0, mOneFrameLen);
+//					int len = fs.read(bufferSrc, 0, mOneFrameLen);
+//					swapYV12toNV21(bufferSrc, bufferDest, m_width, m_height);
 					if (-1 != len) {
 						long startMs = System.currentTimeMillis();
 						ByteBuffer[] inputBuffers = mEncoder.getInputBuffers();
@@ -152,14 +146,27 @@ public class VideoEncoderThread extends Thread {
 							inputBuffer.put(bufferDest);
 							mEncoder.queueInputBuffer(inputBufferIndex, 0, bufferDest.length, pts, 0);
 							generateIndex += 1;
+//							if((generateIndex-2) %90 == 0) {
+//								Log.i(TAG, "sync frame");
+//								Bundle params = new Bundle();
+//								params.putInt(MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME, 0);
+//								mEncoder.setParameters(params);
+//							}
 						} else {
 							Log.e(TAG, "dequeue input buffer failed");
 						}
+					} else {
+						count++;
+						Log.e(TAG, "                              EOS");
+						if(count > 10) {
+							Log.e(TAG, path + " encode use " + (System.currentTimeMillis()-time_start) + "ms");
+							isRuning = false;
+						}
+						Log.e(TAG, path);
 					}
-
 					BufferInfo bufferInfo = new BufferInfo();
 					int outputBufferIndex = mEncoder.dequeueOutputBuffer(bufferInfo, TIMEOUT_USEC);
-					while (outputBufferIndex >= 0) {
+					if (outputBufferIndex >= 0) {
 						Log.i(TAG, "Get H264 Buffer Success! flag = "+bufferInfo.flags+",pts = "+bufferInfo.presentationTimeUs+"");
 						ByteBuffer outputBuffer = mEncoder.getOutputBuffer(outputBufferIndex);
 						byte[] outData = new byte[bufferInfo.size];
@@ -173,14 +180,12 @@ public class VideoEncoderThread extends Thread {
 							System.arraycopy(outData, 0, keyframe, configbyte.length, outData.length);
 
 							outputStream.write(keyframe, 0, keyframe.length);
-						}else{
+						} else {
 							outputStream.write(outData, 0, outData.length);
 						}
 						outputStream.flush();
 						mEncoder.releaseOutputBuffer(outputBufferIndex, false);
-						outputBufferIndex = mEncoder.dequeueOutputBuffer(bufferInfo, TIMEOUT_USEC);
 					}
-
 				} catch (Throwable t) {
 					t.printStackTrace();
 				}
@@ -240,49 +245,4 @@ public class VideoEncoderThread extends Thread {
 		return 132 + frameIndex * 1000000 / m_framerate;
 	}
 
-	private static void dumpFile(String fileName, byte[] data) {
-		FileOutputStream outStream;
-		try {
-			outStream = new FileOutputStream(fileName);
-		} catch (IOException ioe) {
-			throw new RuntimeException("Unable to create output file " + fileName, ioe);
-		}
-		try {
-			outStream.write(data);
-			outStream.close();
-		} catch (IOException ioe) {
-			throw new RuntimeException("failed writing data to file " + fileName, ioe);
-		}
-	}
-
-	public void encodeAndOutput(byte[] arr, String file) {
-		try {
-			long before = System.currentTimeMillis();
-			Log.d(TAG, "out file: " + file);
-			FileOutputStream outStream;
-			outStream = new FileOutputStream(file);
-
-			byte[] result = JpegEncoder.encode(arr, mWidth, mHeight);
-			outStream.write(result);
-
-//			Rect rect = outImage.getCropRect();
-//			YuvImage yuvImage = new YuvImage(arr, ImageFormat.NV21, rect.width(), rect.height(), null);
-//			Log.d(TAG, "time used(yuv image): " + (System.currentTimeMillis()-before));
-//			yuvImage.compressToJpeg(rect, 100, outStream);
-
-			Log.d(TAG, "time used(compress to jpeg): " + (System.currentTimeMillis()-before) + ", len: " + result.length);
-			outStream.close();
-		} catch (IOException ioe) {
-			Log.d(TAG, ioe.toString());
-//			throw new RuntimeException("Unable to create output file ", ioe);
-		}
-	}
-
-	private void showSupportedColorFormat(MediaCodecInfo.CodecCapabilities caps) {
-		System.out.print("supported color format: ");
-		for (int c : caps.colorFormats) {
-			System.out.print(c + "\t");
-		}
-		System.out.println();
-	}
 }

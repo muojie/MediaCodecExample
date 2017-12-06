@@ -417,15 +417,14 @@ public class VideoToFrames implements Runnable {
             FileOutputStream outStream;
             outStream = new FileOutputStream(file);
 
-            byte[] result = JpegEncoder.encode(arr, mWidth, mHeight);
-            outStream.write(result);
+//            byte[] result = JpegEncoder.encode(arr, mWidth, mHeight);
+//            outStream.write(result);
 
-//			Rect rect = outImage.getCropRect();
-//			YuvImage yuvImage = new YuvImage(arr, ImageFormat.NV21, rect.width(), rect.height(), null);
-//			Log.d(TAG, "time used(yuv image): " + (System.currentTimeMillis()-before));
-//			yuvImage.compressToJpeg(rect, 100, outStream);
+			YuvImage yuvImage = new YuvImage(arr, ImageFormat.NV21, mWidth, mHeight, null);
+			Log.d(TAG, "time used(yuv image): " + (System.currentTimeMillis()-before));
+			yuvImage.compressToJpeg(new Rect(0, 0, mWidth, mHeight), 100, outStream);
 
-            Log.d(TAG, "time used(compress to jpeg): " + (System.currentTimeMillis()-before) + ", len: " + result.length);
+            Log.d(TAG, "time used(compress to jpeg): " + (System.currentTimeMillis()-before));
             outStream.close();
         } catch (IOException ioe) {
             Log.d(TAG, ioe.toString());

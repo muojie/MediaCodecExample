@@ -18,6 +18,8 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
+import static net.thdev.mediacodecexample.OutputImageFormat.JPEG;
+
 public class MyService extends Service implements VideoToFrames.Callback {
     private static final String TAG = "MyService";
     private static final int REQUEST_CODE_GET_FILE_PATH = 1;
@@ -47,6 +49,11 @@ public class MyService extends Service implements VideoToFrames.Callback {
         super.onCreate();
     }
 
+    @Override
+    public int onStartCommand(Intent intent, int flags, int startId) {
+        return super.onStartCommand(intent, flags, startId);
+    }
+
     final Handler handler = new Handler() {
         public void handleMessage(Message msg) {
             switch ((msg.what)) {
@@ -67,7 +74,7 @@ public class MyService extends Service implements VideoToFrames.Callback {
         mJpegEncTime = 0;
         mTotalVideoDuration = 0;
 
-        outputDir = Environment.getExternalStorageDirectory() + "/videoToJPEG";
+        outputDir = Environment.getExternalStorageDirectory() + "/testjpeg";
         String inputFilePath = "/storage/emulated/0/news";
 //                File file = new File(inputFilePath);
 //                GetFiles(file.getParent(), null, false);
@@ -90,7 +97,8 @@ public class MyService extends Service implements VideoToFrames.Callback {
                     throw new IOException("Not a directory");
                 }
                 mVideoCount++;
-                mVideoToFrames.setSaveFrames(outputDir + "/" + Integer.toString(mVideoCount), outputImageFormat);
+                outputImageFormat = JPEG;
+                mVideoToFrames.setSaveFrames(outputDir, outputImageFormat);
 //                videoToFrames1.setSaveFrames(outputDir + "2", outputImageFormat);
 //                videoToFrames2.setSaveFrames(outputDir + "3", outputImageFormat);
 //                videoToFrames3.setSaveFrames(outputDir + "4", outputImageFormat);
@@ -162,6 +170,7 @@ public class MyService extends Service implements VideoToFrames.Callback {
             msg.obj += ", 视频总时长(s): " + mTotalVideoDuration/1000 + ", 总耗时(s): " + mTotalUsedTime/1000;
             msg.obj += ", jpeg编码耗时(s): " + mJpegEncTime/1000;
             handler.sendMessage(msg);
+            firstEnter();
         }
     }
 

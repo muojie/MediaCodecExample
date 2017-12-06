@@ -49,7 +49,7 @@ public class JpegEncoder {
                     break;
                 case 2:
                     if (colorFormat == COLOR_FormatI420) {
-                        channelOffset = width * height;
+                        channelOffset = (int) (width * height * 1.25);
                         outputStride = 1;
                     } else if (colorFormat == COLOR_FormatNV21) {
                         channelOffset = width * height + 1;
@@ -58,7 +58,7 @@ public class JpegEncoder {
                     break;
                 case 1:
                     if (colorFormat == COLOR_FormatI420) {
-                        channelOffset = (int) (width * height * 1.25);
+                        channelOffset = width * height;
                         outputStride = 1;
                     } else if (colorFormat == COLOR_FormatNV21) {
                         channelOffset = width * height;

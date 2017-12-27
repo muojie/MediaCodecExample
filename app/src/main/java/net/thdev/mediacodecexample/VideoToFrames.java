@@ -157,7 +157,7 @@ public class VideoToFrames implements Runnable {
                     mWidth = format.getInteger(MediaFormat.KEY_WIDTH);
                     mHeight = format.getInteger(MediaFormat.KEY_HEIGHT);
                     mVideoDuration = format.getLong(MediaFormat.KEY_DURATION)/1000;
-                    mVideoMaxInputSize = format.getInteger(MediaFormat.KEY_MAX_INPUT_SIZE);
+//                    mVideoMaxInputSize = format.getInteger(MediaFormat.KEY_MAX_INPUT_SIZE);
                     showSupportedColorFormat(mDecoder.getCodecInfo().getCapabilitiesForType(mime));
 //                    if (isColorFormatSupported(decodeColorFormat, mDecoder.getCodecInfo().getCapabilitiesForType(mime))) {
 //                        format.setInteger(MediaFormat.KEY_COLOR_FORMAT, decodeColorFormat);
@@ -166,7 +166,7 @@ public class VideoToFrames implements Runnable {
 //                        Log.i(TAG, "unable to set decode color format, color format type " + decodeColorFormat + " not supported");
 //                    }
                     Log.d(TAG, "format : " + format);
-                    GotIFramePTS();
+//                    GotIFramePTS();
                     decodeFramesToImage(mDecoder, mExtractor, format);
                     mDecoder.stop();
                     break;
@@ -219,7 +219,7 @@ public class VideoToFrames implements Runnable {
                 int inputBufferId = decoder.dequeueInputBuffer(DEFAULT_TIMEOUT_US);
                 if (inputBufferId >= 0) {
                     ByteBuffer inputBuffer = decoder.getInputBuffer(inputBufferId);
-                    if(seekTo(InputFrameCount)) {
+                    if(!sawInputEOS) {
                         int sampleSize = extractor.readSampleData(inputBuffer, 0);
                         if (sampleSize < 0) {
                             decoder.queueInputBuffer(inputBufferId, 0, 0, 0L, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
@@ -274,7 +274,7 @@ public class VideoToFrames implements Runnable {
                             image.getPlanes()[1].getBuffer().remaining() + ", " +
                             image.getPlanes()[1].getPixelStride() + ", " +
                             image.getPlanes()[1].getRowStride());
-					byte[] arr = JpegEncoder.getDataFromImage(image, JpegEncoder.COLOR_FormatI420);
+					byte[] arr = JpegEncoder.getDataFromImage(image, JpegEncoder.COLOR_FormatNV21);  //jpeg软编用COLOR_FormatNV21， rk硬编用COLOR_FormatI420
                     Log.d(TAG, "time used(format change): " + (System.currentTimeMillis()-before) + ", len: " + arr.length);
 
 //                    ByteBuffer buffer = image.getPlanes()[0].getBuffer();
@@ -300,9 +300,9 @@ public class VideoToFrames implements Runnable {
                                 dumpFile(fileName, getDataFromImage(image, COLOR_FormatNV21));
                                 break;
                             case JPEG:
-                                fileName = OUTPUT_DIR + String.format("%d.jpeg", (MyApplication.getCount()%101)+200);
+                                fileName = OUTPUT_DIR + String.format("%5d.jpeg", outputFrameCount);
 //                                compressToJpeg(fileName, image);
-                                if (arr != null) {
+                                if (arr != null && (outputFrameCount % 5 == 0)) {
                                     encodeAndOutput(arr, fileName);
                                 }
                                 break;
@@ -420,22 +420,23 @@ public class VideoToFrames implements Runnable {
             FileOutputStream outStream;
             outStream = new FileOutputStream(file);
 
-            int newWidth = mWidth, newHieght;
-            for (; newWidth >= 224; newWidth/=2) {
-            }
-            newHieght = mHeight/(mWidth/newWidth);
-            Log.d(TAG, "new WxH: " + newWidth + "x" + newHieght);
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+			YuvImage yuvImage = new YuvImage(arr, ImageFormat.NV21, mWidth, mHeight, null);
+			Log.d(TAG, "time used(yuv image): " + (System.currentTimeMillis()-before));
+			yuvImage.compressToJpeg(new Rect(0, 0, mWidth, mHeight), 100, out);
+            byte[] imageBytes = out.toByteArray();
 
-            byte[] imageBytes = JpegEncoder.encode(arr, mWidth, mHeight);
-//
-//            ByteArrayOutputStream out = new ByteArrayOutputStream();
-//			YuvImage yuvImage = new YuvImage(arr, ImageFormat.NV21, mWidth, mHeight, null);
-//			Log.d(TAG, "time used(yuv image): " + (System.currentTimeMillis()-before));
-//			yuvImage.compressToJpeg(new Rect(0, 0, mWidth, mHeight), 100, out);
-//            byte[] imageBytes = out.toByteArray();
-            Bitmap image = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.length);
-            Bitmap resized = Bitmap.createScaledBitmap(image, newWidth, newHieght, true);
-            resized.compress(Bitmap.CompressFormat.JPEG, 100, outStream);
+			//硬编
+//            byte[] imageBytes = JpegEncoder.encode(arr, mWidth, mHeight);   //硬编，不支持1080p
+
+            outStream.write(imageBytes);
+
+            //resize
+
+//            Bitmap image = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.length);
+//            Bitmap resized = Bitmap.createScaledBitmap(image, newWidth, newHieght, true);
+//            resized.compress(Bitmap.CompressFormat.JPEG, 100, outStream);
+
 
             Log.d(TAG, "time used(compress to jpeg): " + (System.currentTimeMillis()-before));
             outStream.close();

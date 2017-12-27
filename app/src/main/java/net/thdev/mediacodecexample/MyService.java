@@ -170,7 +170,6 @@ public class MyService extends Service implements VideoToFrames.Callback {
             msg.obj += ", 视频总时长(s): " + mTotalVideoDuration/1000 + ", 总耗时(s): " + mTotalUsedTime/1000;
             msg.obj += ", jpeg编码耗时(s): " + mJpegEncTime/1000;
             handler.sendMessage(msg);
-            firstEnter();
         }
     }
 
